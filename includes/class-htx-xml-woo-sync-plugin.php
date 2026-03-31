@@ -94,11 +94,11 @@ class HTX_XML_Woo_Sync_Plugin {
 		$this->admin->register_hooks();
 
 		add_filter( 'cron_schedules', array( $this, 'cron_schedules' ) );
-		add_action( self::CRON_SCHEDULE_HOOK, array( $this->runner, 'maybe_start_scheduled_sync' ) );
-		add_action( self::CRON_BATCH_HOOK, array( $this->runner, 'process_batch' ), 10, 1 );
 		add_action( 'update_option_' . self::OPTION_KEY, array( $this, 'handle_settings_updated' ), 10, 2 );
 
 		if ( $this->is_woocommerce_ready() ) {
+			add_action( self::CRON_SCHEDULE_HOOK, array( $this->runner, 'maybe_start_scheduled_sync' ) );
+			add_action( self::CRON_BATCH_HOOK, array( $this->runner, 'process_batch' ), 10, 1 );
 			add_action( 'admin_menu', array( $this->admin, 'add_menu' ) );
 		} else {
 			add_action( 'admin_notices', array( $this, 'woocommerce_required_notice' ) );
@@ -183,9 +183,7 @@ class HTX_XML_Woo_Sync_Plugin {
 			return;
 		}
 
-		if ( ! wp_next_scheduled( self::CRON_SCHEDULE_HOOK ) ) {
-			wp_schedule_event( time() + 300, $schedule, self::CRON_SCHEDULE_HOOK );
-		}
+		wp_schedule_event( time() + 300, $schedule, self::CRON_SCHEDULE_HOOK );
 	}
 
 	/**

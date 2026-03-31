@@ -260,7 +260,7 @@ class HTX_XML_Woo_Sync_Runner {
 			}
 
 			$this->schedule_batch( $token, 10 );
-		} catch ( Exception $exception ) {
+		} catch ( \Throwable $exception ) {
 			$this->fail_run( $token, $exception->getMessage() );
 		}
 	}

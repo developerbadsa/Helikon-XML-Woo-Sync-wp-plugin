@@ -221,7 +221,10 @@ class HTX_XML_Woo_Sync_Feed {
 			foreach ( array_slice( $errors, 0, 3 ) as $error ) {
 				$messages[] = trim( $error->message );
 			}
-			return new WP_Error( 'htx_feed_runtime_xml', __( 'The XML became invalid while processing the feed.', 'helikon-xml-woo-sync' ) . ' ' . implode( ' | ', $messages ) );
+			$this->state->add_log(
+				__( 'XML parser warnings during batch read: ', 'helikon-xml-woo-sync' ) . implode( ' | ', $messages ),
+				'warning'
+			);
 		}
 
 		return array(
@@ -718,7 +721,15 @@ class HTX_XML_Woo_Sync_Feed {
 	 */
 	private function normalize_price( $value ) {
 		$number = $this->normalize_number( $value );
-		return '' === $number ? '' : wc_format_decimal( $number, wc_get_price_decimals() );
+		if ( '' === $number ) {
+			return '';
+		}
+
+		if ( function_exists( 'wc_format_decimal' ) && function_exists( 'wc_get_price_decimals' ) ) {
+			return wc_format_decimal( $number, wc_get_price_decimals() );
+		}
+
+		return $number;
 	}
 
 	/**

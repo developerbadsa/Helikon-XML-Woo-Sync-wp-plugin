@@ -95,7 +95,7 @@ class HTX_XML_Woo_Sync_Products {
 					WC_Product_Variable::sync( $parent_result['parent_id'] );
 				}
 				wc_delete_product_transients( $parent_result['parent_id'] );
-			} catch ( Exception $exception ) {
+			} catch ( \Throwable $exception ) {
 				$summary['failed'] += count( $group['items'] );
 				$this->state->add_log(
 					sprintf(
@@ -327,7 +327,19 @@ class HTX_XML_Woo_Sync_Products {
 
 		$variation->set_parent_id( $parent_id );
 		$variation->set_status( 'publish' );
-		$variation->set_sku( $item['sku'] );
+		try {
+			$variation->set_sku( $item['sku'] );
+		} catch ( \Exception $e ) {
+			$this->state->add_log(
+				sprintf(
+					/* translators: 1: SKU, 2: error message */
+					__( 'Could not set SKU %1$s on variation: %2$s', 'helikon-xml-woo-sync' ),
+					$item['sku'],
+					$e->getMessage()
+				),
+				'warning'
+			);
+		}
 		$variation->set_attributes( $this->build_variation_attributes( $item['attributes'] ) );
 
 		if ( '' !== $item['regular_price'] ) {

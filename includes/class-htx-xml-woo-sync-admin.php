@@ -280,6 +280,7 @@ class HTX_XML_Woo_Sync_Admin {
 		if ( is_wp_error( $result ) ) {
 			$this->state->add_log( $result->get_error_message(), 'warning' );
 			$this->redirect_with_notice( 'test_failed' );
+			return;
 		}
 
 		$this->state->add_log( $result['message'] );
