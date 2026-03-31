@@ -1,0 +1,47 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<Products>
+  <Product>
+    <SKU>BL-TRS-001-S</SKU>
+    <productName>Sample Tactical Shirt</productName>
+    <Brand>Helikon</Brand>
+    <Manufacturer>Helikon-Tex</Manufacturer>
+    <catalogDescription>Breathable field shirt</catalogDescription>
+    <groupId>BL-TRS-001</groupId>
+    <color>
+      <name>Olive Green</name>
+    </color>
+    <size>
+      <tagEU>S</tagEU>
+      <tagUSA>Small</tagUSA>
+    </size>
+    <price>49.90</price>
+    <stockQty>8</stockQty>
+    <Multimedia>
+      <mainPhoto>products/bl-trs-001/main.jpg</mainPhoto>
+      <additionalPhotos>
+        <photo>products/bl-trs-001/gallery-1.jpg</photo>
+      </additionalPhotos>
+    </Multimedia>
+  </Product>
+  <Product>
+    <SKU>BL-TRS-001-M</SKU>
+    <productName>Sample Tactical Shirt</productName>
+    <Brand>Helikon</Brand>
+    <Manufacturer>Helikon-Tex</Manufacturer>
+    <catalogDescription>Breathable field shirt</catalogDescription>
+    <groupId>BL-TRS-001</groupId>
+    <color>
+      <name>Olive Green</name>
+    </color>
+    <size>
+      <tagEU>M</tagEU>
+      <tagUSA>Medium</tagUSA>
+    </size>
+    <price>49.90</price>
+    <salePrice>44.90</salePrice>
+    <stockQty>0</stockQty>
+    <Multimedia>
+      <mainPhoto>products/bl-trs-001/main.jpg</mainPhoto>
+    </Multimedia>
+  </Product>
+</Products>
