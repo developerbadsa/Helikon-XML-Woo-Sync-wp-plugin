@@ -21,6 +21,16 @@ class HTX_XML_Woo_Sync_State {
 			'username'              => '',
 			'password'              => '',
 			'media_base_url'        => '',
+			'sku_path'              => 'SKU',
+			'title_path'            => 'productName',
+			'description_path'      => 'catalogDescription',
+			'brand_path'            => 'Brand',
+			'manufacturer_path'     => 'Manufacturer',
+			'main_photo_path'       => 'Multimedia.mainPhoto',
+			'gallery_photo_path'    => 'Multimedia.additionalPhotos.photo',
+			'erp_id_path'           => 'erpID',
+			'weight_path'           => 'NetWeight',
+			'weight_unit_path'      => 'WeightUnit',
 			'grouping_mode'         => 'field_then_sku_base',
 			'grouping_path'         => '',
 			'variant_attribute_map' => "size.tagEU=Size\nsize.tagUSA=US Size\ncolor.name=Color",
@@ -28,6 +38,7 @@ class HTX_XML_Woo_Sync_State {
 			'sale_price_path'       => '',
 			'stock_qty_path'        => '',
 			'stock_status_path'     => '',
+			'test_sync_limit'       => 20,
 			'schedule'              => 'daily',
 			'batch_size'            => 20,
 			'missing_action'        => 'ignore',
@@ -56,9 +67,20 @@ class HTX_XML_Woo_Sync_State {
 		$defaults = $this->get_default_settings();
 		$output   = array(
 			'xml_url'               => isset( $input['xml_url'] ) ? esc_url_raw( trim( (string) $input['xml_url'] ) ) : $defaults['xml_url'],
-			'username'              => isset( $input['username'] ) ? sanitize_text_field( (string) $input['username'] ) : '',
-			'password'              => isset( $input['password'] ) ? sanitize_text_field( (string) $input['password'] ) : '',
+			'username'              => isset( $input['username'] ) ? trim( wp_unslash( (string) $input['username'] ) ) : '',
+			// Preserve the exact password for Basic Auth. Escaping happens on output.
+			'password'              => isset( $input['password'] ) ? wp_unslash( (string) $input['password'] ) : '',
 			'media_base_url'        => isset( $input['media_base_url'] ) ? esc_url_raw( trim( (string) $input['media_base_url'] ) ) : '',
+			'sku_path'              => isset( $input['sku_path'] ) ? sanitize_text_field( (string) $input['sku_path'] ) : $defaults['sku_path'],
+			'title_path'            => isset( $input['title_path'] ) ? sanitize_text_field( (string) $input['title_path'] ) : $defaults['title_path'],
+			'description_path'      => isset( $input['description_path'] ) ? sanitize_text_field( (string) $input['description_path'] ) : $defaults['description_path'],
+			'brand_path'            => isset( $input['brand_path'] ) ? sanitize_text_field( (string) $input['brand_path'] ) : $defaults['brand_path'],
+			'manufacturer_path'     => isset( $input['manufacturer_path'] ) ? sanitize_text_field( (string) $input['manufacturer_path'] ) : $defaults['manufacturer_path'],
+			'main_photo_path'       => isset( $input['main_photo_path'] ) ? sanitize_text_field( (string) $input['main_photo_path'] ) : $defaults['main_photo_path'],
+			'gallery_photo_path'    => isset( $input['gallery_photo_path'] ) ? sanitize_text_field( (string) $input['gallery_photo_path'] ) : $defaults['gallery_photo_path'],
+			'erp_id_path'           => isset( $input['erp_id_path'] ) ? sanitize_text_field( (string) $input['erp_id_path'] ) : $defaults['erp_id_path'],
+			'weight_path'           => isset( $input['weight_path'] ) ? sanitize_text_field( (string) $input['weight_path'] ) : $defaults['weight_path'],
+			'weight_unit_path'      => isset( $input['weight_unit_path'] ) ? sanitize_text_field( (string) $input['weight_unit_path'] ) : $defaults['weight_unit_path'],
 			'grouping_mode'         => isset( $input['grouping_mode'] ) ? sanitize_key( (string) $input['grouping_mode'] ) : $defaults['grouping_mode'],
 			'grouping_path'         => isset( $input['grouping_path'] ) ? sanitize_text_field( (string) $input['grouping_path'] ) : '',
 			'variant_attribute_map' => isset( $input['variant_attribute_map'] ) ? sanitize_textarea_field( (string) $input['variant_attribute_map'] ) : $defaults['variant_attribute_map'],
@@ -66,6 +88,7 @@ class HTX_XML_Woo_Sync_State {
 			'sale_price_path'       => isset( $input['sale_price_path'] ) ? sanitize_text_field( (string) $input['sale_price_path'] ) : '',
 			'stock_qty_path'        => isset( $input['stock_qty_path'] ) ? sanitize_text_field( (string) $input['stock_qty_path'] ) : '',
 			'stock_status_path'     => isset( $input['stock_status_path'] ) ? sanitize_text_field( (string) $input['stock_status_path'] ) : '',
+			'test_sync_limit'       => isset( $input['test_sync_limit'] ) ? absint( $input['test_sync_limit'] ) : $defaults['test_sync_limit'],
 			'schedule'              => isset( $input['schedule'] ) ? sanitize_key( (string) $input['schedule'] ) : $defaults['schedule'],
 			'batch_size'            => isset( $input['batch_size'] ) ? absint( $input['batch_size'] ) : $defaults['batch_size'],
 			'missing_action'        => isset( $input['missing_action'] ) ? sanitize_key( (string) $input['missing_action'] ) : $defaults['missing_action'],
@@ -84,6 +107,7 @@ class HTX_XML_Woo_Sync_State {
 		}
 
 		$output['batch_size'] = max( 1, min( 100, $output['batch_size'] ) );
+		$output['test_sync_limit'] = max( 1, min( 500, $output['test_sync_limit'] ) );
 
 		return $output;
 	}
@@ -120,6 +144,8 @@ class HTX_XML_Woo_Sync_State {
 			'started_at'     => '',
 			'feed_path'      => '',
 			'checkpoint'     => 0,
+			'is_test_run'    => false,
+			'max_products'   => 0,
 			'total_products' => 0,
 		);
 	}
@@ -309,5 +335,24 @@ class HTX_XML_Woo_Sync_State {
 	 */
 	public function clear_lock() {
 		delete_option( HTX_XML_Woo_Sync_Plugin::LOCK_KEY );
+	}
+
+	/**
+	 * Clear the stored log entries and runtime error text.
+	 *
+	 * @return void
+	 */
+	public function clear_logs() {
+		$state = $this->get_state();
+
+		$state['log']        = array();
+		$state['last_error'] = '';
+
+		if ( empty( $state['is_running'] ) ) {
+			$state['last_status']  = 'idle';
+			$state['last_message'] = __( 'Recent log entries were cleared.', 'helikon-xml-woo-sync' );
+		}
+
+		$this->update_state( $state );
 	}
 }

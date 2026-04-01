@@ -54,14 +54,7 @@ class HTX_XML_Woo_Sync_Feed {
 
 		$status_code = (int) wp_remote_retrieve_response_code( $response );
 		if ( 200 !== $status_code ) {
-			return new WP_Error(
-				'htx_test_status',
-				sprintf(
-					/* translators: %d: HTTP status code */
-					__( 'The feed request returned HTTP %d.', 'helikon-xml-woo-sync' ),
-					$status_code
-				)
-			);
+			return $this->build_http_status_error( 'htx_test_status', $status_code, $response, $settings );
 		}
 
 		$body = trim( (string) wp_remote_retrieve_body( $response ) );
@@ -115,14 +108,7 @@ class HTX_XML_Woo_Sync_Feed {
 		$status_code = (int) wp_remote_retrieve_response_code( $response );
 		if ( 200 !== $status_code ) {
 			wp_delete_file( $feed_path );
-			return new WP_Error(
-				'htx_feed_status',
-				sprintf(
-					/* translators: %d: HTTP status code */
-					__( 'The feed request returned HTTP %d.', 'helikon-xml-woo-sync' ),
-					$status_code
-				)
-			);
+			return $this->build_http_status_error( 'htx_feed_status', $status_code, $response, $settings );
 		}
 
 		if ( ! file_exists( $feed_path ) || 0 === filesize( $feed_path ) ) {
@@ -309,7 +295,7 @@ class HTX_XML_Woo_Sync_Feed {
 		}
 
 		$data = $this->xml_to_array( $product );
-		$sku  = $this->normalize_scalar( $this->array_get( $data, 'SKU' ) );
+		$sku  = $this->get_mapped_scalar( $data, $settings, 'sku_path', 'SKU' );
 		if ( '' === $sku ) {
 			return new WP_Error( 'htx_missing_sku', __( 'Skipped a feed row because the SKU field is missing.', 'helikon-xml-woo-sync' ) );
 		}
@@ -328,14 +314,14 @@ class HTX_XML_Woo_Sync_Feed {
 			'additional_photos' => $group['additional_photos'],
 			'item'              => array(
 				'sku'           => $sku,
-				'erp_id'        => $this->normalize_scalar( $this->array_get( $data, 'erpID' ) ),
+				'erp_id'        => $this->get_mapped_scalar( $data, $settings, 'erp_id_path', 'erpID' ),
 				'attributes'    => $this->extract_variant_attributes( $data, $settings ),
 				'regular_price' => $this->extract_price( $data, $settings['price_path'], array( 'price', 'Price', 'grossPrice', 'GrossPrice', 'retailPrice', 'RetailPrice' ) ),
 				'sale_price'    => $this->extract_price( $data, $settings['sale_price_path'], array( 'salePrice', 'SalePrice', 'promoPrice', 'PromoPrice' ) ),
 				'stock_qty'     => $this->extract_numeric( $data, $settings['stock_qty_path'], array( 'stock', 'Stock', 'stockQty', 'StockQty', 'quantity', 'Quantity', 'qty', 'Qty' ) ),
 				'stock_status'  => $this->extract_stock_status( $data, $settings ),
-				'weight'        => $this->normalize_scalar( $this->array_get( $data, 'NetWeight' ) ),
-				'weight_unit'   => $this->normalize_scalar( $this->array_get( $data, 'WeightUnit' ) ),
+				'weight'        => $this->get_mapped_scalar( $data, $settings, 'weight_path', 'NetWeight' ),
+				'weight_unit'   => $this->get_mapped_scalar( $data, $settings, 'weight_unit_path', 'WeightUnit' ),
 				'main_photo'    => $group['main_photo'],
 			),
 		);
@@ -405,12 +391,12 @@ class HTX_XML_Woo_Sync_Feed {
 	 * @return array
 	 */
 	private function build_group_context( $data, $settings, $sku ) {
-		$title        = $this->normalize_scalar( $this->array_get( $data, 'productName' ) );
-		$brand        = $this->normalize_scalar( $this->array_get( $data, 'Brand' ) );
-		$manufacturer = $this->normalize_scalar( $this->array_get( $data, 'Manufacturer' ) );
-		$description  = $this->normalize_description( $this->normalize_scalar( $this->array_get( $data, 'catalogDescription' ) ) );
-		$main_photo   = $this->normalize_scalar( $this->array_get( $data, 'Multimedia.mainPhoto' ) );
-		$additional   = $this->normalize_to_array( $this->array_get( $data, 'Multimedia.additionalPhotos.photo' ) );
+		$title        = $this->get_mapped_scalar( $data, $settings, 'title_path', 'productName' );
+		$brand        = $this->get_mapped_scalar( $data, $settings, 'brand_path', 'Brand' );
+		$manufacturer = $this->get_mapped_scalar( $data, $settings, 'manufacturer_path', 'Manufacturer' );
+		$description  = $this->normalize_description( $this->get_mapped_scalar( $data, $settings, 'description_path', 'catalogDescription' ) );
+		$main_photo   = $this->get_mapped_scalar( $data, $settings, 'main_photo_path', 'Multimedia.mainPhoto' );
+		$additional   = $this->get_mapped_array( $data, $settings, 'gallery_photo_path', 'Multimedia.additionalPhotos.photo' );
 		$sku_base     = $this->derive_sku_base( $sku );
 		$field_value  = '';
 
@@ -449,6 +435,50 @@ class HTX_XML_Woo_Sync_Feed {
 			'main_photo'        => $main_photo,
 			'additional_photos' => $additional,
 		);
+	}
+
+	/**
+	 * Read a configured scalar path with a fallback.
+	 *
+	 * @param array  $data          Row data.
+	 * @param array  $settings      Plugin settings.
+	 * @param string $setting_key   Settings array key.
+	 * @param string $fallback_path Fallback dot path.
+	 * @return string
+	 */
+	private function get_mapped_scalar( $data, $settings, $setting_key, $fallback_path ) {
+		$path = $this->get_setting_path( $settings, $setting_key, $fallback_path );
+		return $this->normalize_scalar( $this->array_get( $data, $path ) );
+	}
+
+	/**
+	 * Read a configured array path with a fallback.
+	 *
+	 * @param array  $data          Row data.
+	 * @param array  $settings      Plugin settings.
+	 * @param string $setting_key   Settings array key.
+	 * @param string $fallback_path Fallback dot path.
+	 * @return array
+	 */
+	private function get_mapped_array( $data, $settings, $setting_key, $fallback_path ) {
+		$path = $this->get_setting_path( $settings, $setting_key, $fallback_path );
+		return $this->normalize_to_array( $this->array_get( $data, $path ) );
+	}
+
+	/**
+	 * Get a saved mapping path or a fallback.
+	 *
+	 * @param array  $settings      Plugin settings.
+	 * @param string $setting_key   Settings array key.
+	 * @param string $fallback_path Fallback path.
+	 * @return string
+	 */
+	private function get_setting_path( $settings, $setting_key, $fallback_path ) {
+		if ( ! empty( $settings[ $setting_key ] ) ) {
+			return (string) $settings[ $setting_key ];
+		}
+
+		return (string) $fallback_path;
 	}
 
 	/**
@@ -589,6 +619,38 @@ class HTX_XML_Woo_Sync_Feed {
 		}
 
 		return $headers;
+	}
+
+	/**
+	 * Build a more actionable HTTP status error.
+	 *
+	 * @param string $error_code  Local error code.
+	 * @param int    $status_code HTTP status code.
+	 * @param array  $response    HTTP response array.
+	 * @param array  $settings    Plugin settings.
+	 * @return WP_Error
+	 */
+	private function build_http_status_error( $error_code, $status_code, $response, $settings ) {
+		$message = sprintf(
+			/* translators: %d: HTTP status code */
+			__( 'The feed request returned HTTP %d.', 'helikon-xml-woo-sync' ),
+			$status_code
+		);
+
+		if ( 401 === (int) $status_code ) {
+			$auth_header       = (string) wp_remote_retrieve_header( $response, 'www-authenticate' );
+			$has_saved_username = '' !== (string) $settings['username'];
+			$has_saved_password = '' !== (string) $settings['password'];
+			$uses_basic_auth   = false !== stripos( $auth_header, 'basic' );
+
+			if ( $uses_basic_auth && ! $has_saved_username && ! $has_saved_password ) {
+				$message = __( 'The feed returned HTTP 401 Unauthorized and the server is requesting HTTP Basic Auth. Save the XML URL, username, and password first, then test again.', 'helikon-xml-woo-sync' );
+			} elseif ( $uses_basic_auth ) {
+				$message = __( 'The feed returned HTTP 401 Unauthorized. The remote server rejected the saved Basic Auth username/password. If you just changed the fields below, click Save Settings first and then test again.', 'helikon-xml-woo-sync' );
+			}
+		}
+
+		return new WP_Error( $error_code, $message );
 	}
 
 	/**

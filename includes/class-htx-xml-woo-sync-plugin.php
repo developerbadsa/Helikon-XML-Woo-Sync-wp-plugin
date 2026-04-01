@@ -16,8 +16,11 @@ class HTX_XML_Woo_Sync_Plugin {
 	const CRON_SCHEDULE_HOOK      = 'htx_xml_woo_sync_cron';
 	const CRON_BATCH_HOOK         = 'htx_xml_woo_sync_process_batch';
 	const NONCE_ACTION_SYNC       = 'htx_xml_woo_sync_manual';
+	const NONCE_ACTION_TEST_SYNC  = 'htx_xml_woo_sync_test_sync';
 	const NONCE_ACTION_TEST       = 'htx_xml_woo_sync_test';
 	const NONCE_ACTION_CLEAR_LOCK = 'htx_xml_woo_sync_clear_lock';
+	const NONCE_ACTION_CLEAR_LOGS = 'htx_xml_woo_sync_clear_logs';
+	const NONCE_ACTION_PURGE_DATA = 'htx_xml_woo_sync_purge_data';
 
 	const META_GROUP_KEY          = '_htx_group_key';
 	const META_GROUP_EXTERNAL     = '_htx_group_external_key';

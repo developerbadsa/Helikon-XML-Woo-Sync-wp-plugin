@@ -269,6 +269,8 @@ class HTX_XML_Woo_Sync_Products {
 			update_post_meta( $parent_id, '_htx_manufacturer', $group['manufacturer'] );
 		}
 
+		$current_image_id = (int) $product->get_image_id();
+
 		if ( $group['main_photo'] ) {
 			$image_id = $this->images->import_image( $group['main_photo'], $parent_id, $settings );
 			if ( is_wp_error( $image_id ) ) {
@@ -281,15 +283,15 @@ class HTX_XML_Woo_Sync_Products {
 					),
 					'warning'
 				);
-			} elseif ( $image_id && (int) $product->get_image_id() !== (int) $image_id ) {
+			} elseif ( $image_id && $current_image_id !== (int) $image_id ) {
 				$product->set_image_id( $image_id );
 			}
+		} elseif ( $current_image_id && $this->images->is_managed_attachment( $current_image_id ) ) {
+			$product->set_image_id( 0 );
 		}
 
-		if ( ! empty( $group['additional_photos'] ) ) {
-			$gallery_ids = $this->images->merge_gallery_ids( $product->get_gallery_image_ids(), $group['additional_photos'], $parent_id, $settings );
-			$product->set_gallery_image_ids( $gallery_ids );
-		}
+		$gallery_ids = $this->images->sync_gallery_ids( $product->get_gallery_image_ids(), $group['additional_photos'], $parent_id, $settings );
+		$product->set_gallery_image_ids( $gallery_ids );
 
 		$product->save();
 
@@ -381,6 +383,8 @@ class HTX_XML_Woo_Sync_Products {
 			update_post_meta( $variation_id, '_htx_weight_unit', $item['weight_unit'] );
 		}
 
+		$current_image_id = (int) $variation->get_image_id();
+
 		if ( $item['main_photo'] ) {
 			$image_id = $this->images->import_image( $item['main_photo'], $variation_id, $settings );
 			if ( is_wp_error( $image_id ) ) {
@@ -393,10 +397,13 @@ class HTX_XML_Woo_Sync_Products {
 					),
 					'warning'
 				);
-			} elseif ( $image_id ) {
+			} elseif ( $image_id && $current_image_id !== (int) $image_id ) {
 				$variation->set_image_id( $image_id );
 				$variation->save();
 			}
+		} elseif ( $current_image_id && $this->images->is_managed_attachment( $current_image_id ) ) {
+			$variation->set_image_id( 0 );
+			$variation->save();
 		}
 
 		return array(

@@ -53,9 +53,10 @@ class HTX_XML_Woo_Sync_Runner {
 	 * Start a queued sync.
 	 *
 	 * @param string $trigger Trigger label.
+	 * @param array  $options Optional run overrides.
 	 * @return array|WP_Error
 	 */
-	public function start_sync( $trigger ) {
+	public function start_sync( $trigger, $options = array() ) {
 		if ( ! HTX_XML_Woo_Sync_Plugin::instance()->is_woocommerce_ready() ) {
 			return new WP_Error( 'htx_woo_missing', __( 'WooCommerce is not active, so the sync cannot run.', 'helikon-xml-woo-sync' ) );
 		}
@@ -78,12 +79,21 @@ class HTX_XML_Woo_Sync_Runner {
 		}
 
 		$this->cleanup_feed_file( $state['feed_path'] );
+		$is_test_run = ! empty( $options['is_test_run'] );
+		$max_products = $is_test_run ? max( 1, absint( $options['max_products'] ) ) : 0;
+		$queued_message = $is_test_run
+			? sprintf(
+				/* translators: %d: row limit */
+				__( 'The test sync was queued and will process up to %d feed rows.', 'helikon-xml-woo-sync' ),
+				$max_products
+			)
+			: __( 'The sync was queued and will run in batches.', 'helikon-xml-woo-sync' );
 
 		$this->state->update_state(
 			array(
 				'last_sync_time' => $state['last_sync_time'],
 				'last_status'    => 'queued',
-				'last_message'   => __( 'The sync was queued and will run in batches.', 'helikon-xml-woo-sync' ),
+				'last_message'   => $queued_message,
 				'last_error'     => '',
 				'summary'        => $this->state->get_empty_summary(),
 				'log'            => $state['log'],
@@ -94,17 +104,30 @@ class HTX_XML_Woo_Sync_Runner {
 				'started_at'     => current_time( 'mysql' ),
 				'feed_path'      => '',
 				'checkpoint'     => 0,
+				'is_test_run'    => $is_test_run,
+				'max_products'   => $max_products,
 				'total_products' => 0,
 			)
 		);
 
-		$this->state->add_log(
-			sprintf(
-				/* translators: %s: trigger name */
-				__( 'Sync queued via %s.', 'helikon-xml-woo-sync' ),
-				$trigger
-			)
-		);
+		if ( $is_test_run ) {
+			$this->state->add_log(
+				sprintf(
+					/* translators: 1: trigger name, 2: row limit */
+					__( 'Test sync queued via %1$s for the first %2$d feed rows.', 'helikon-xml-woo-sync' ),
+					$trigger,
+					$max_products
+				)
+			);
+		} else {
+			$this->state->add_log(
+				sprintf(
+					/* translators: %s: trigger name */
+					__( 'Sync queued via %s.', 'helikon-xml-woo-sync' ),
+					$trigger
+				)
+			);
+		}
 
 		$this->schedule_batch( $token, 1 );
 
@@ -186,12 +209,19 @@ class HTX_XML_Woo_Sync_Runner {
 					array(
 						'phase'          => 'processing',
 						'feed_path'      => $prepared_feed['path'],
-						'total_products' => (int) $prepared_feed['total_products'],
-						'last_message'   => sprintf(
-							/* translators: %d: product count */
-							__( 'Feed validated. %d product rows are queued for syncing.', 'helikon-xml-woo-sync' ),
-							(int) $prepared_feed['total_products']
-						),
+						'total_products' => $this->get_run_total_products( $state, (int) $prepared_feed['total_products'] ),
+						'last_message'   => ! empty( $state['is_test_run'] )
+							? sprintf(
+								/* translators: 1: limit count, 2: total feed count */
+								__( 'Feed validated. Test mode will process the first %1$d of %2$d feed rows.', 'helikon-xml-woo-sync' ),
+								$this->get_run_total_products( $state, (int) $prepared_feed['total_products'] ),
+								(int) $prepared_feed['total_products']
+							)
+							: sprintf(
+								/* translators: %d: product count */
+								__( 'Feed validated. %d product rows are queued for syncing.', 'helikon-xml-woo-sync' ),
+								(int) $prepared_feed['total_products']
+							),
 					)
 				);
 
@@ -210,10 +240,28 @@ class HTX_XML_Woo_Sync_Runner {
 				return;
 			}
 
+			$batch_limit = (int) $settings['batch_size'];
+			if ( ! empty( $state['is_test_run'] ) && ! empty( $state['max_products'] ) ) {
+				$remaining = max( 0, (int) $state['max_products'] - (int) $state['checkpoint'] );
+				if ( 0 === $remaining ) {
+					$this->complete_run(
+						$token,
+						sprintf(
+							/* translators: %d: processed feed rows */
+							__( 'Test sync completed successfully after %d feed rows.', 'helikon-xml-woo-sync' ),
+							(int) $state['checkpoint']
+						)
+					);
+					return;
+				}
+
+				$batch_limit = min( $batch_limit, $remaining );
+			}
+
 			$batch = $this->feed->read_batch(
 				$state['feed_path'],
 				(int) $state['checkpoint'],
-				(int) $settings['batch_size'],
+				$batch_limit,
 				$settings,
 				self::MAX_BATCH_RUNTIME
 			);
@@ -240,17 +288,36 @@ class HTX_XML_Woo_Sync_Runner {
 				array(
 					'summary'      => $summary,
 					'checkpoint'   => (int) $batch['next_offset'],
-					'phase'        => $batch['complete'] ? 'finalizing' : 'processing',
-					'last_message' => sprintf(
-						/* translators: 1: processed count, 2: total count */
-						__( 'Processed %1$d of %2$d feed rows.', 'helikon-xml-woo-sync' ),
-						(int) $batch['next_offset'],
-						max( (int) $state['total_products'], (int) $batch['next_offset'] )
-					),
+					'phase'        => $batch['complete'] && empty( $state['is_test_run'] ) ? 'finalizing' : 'processing',
+					'last_message' => ! empty( $state['is_test_run'] )
+						? sprintf(
+							/* translators: 1: processed count, 2: test limit */
+							__( 'Test sync processed %1$d of %2$d feed rows.', 'helikon-xml-woo-sync' ),
+							(int) $batch['next_offset'],
+							max( (int) $state['total_products'], (int) $batch['next_offset'] )
+						)
+						: sprintf(
+							/* translators: 1: processed count, 2: total count */
+							__( 'Processed %1$d of %2$d feed rows.', 'helikon-xml-woo-sync' ),
+							(int) $batch['next_offset'],
+							max( (int) $state['total_products'], (int) $batch['next_offset'] )
+						),
 				)
 			);
 
 			if ( $batch['complete'] ) {
+				if ( ! empty( $state['is_test_run'] ) ) {
+					$this->complete_run(
+						$token,
+						sprintf(
+							/* translators: %d: processed feed rows */
+							__( 'Test sync completed successfully after %d feed rows.', 'helikon-xml-woo-sync' ),
+							(int) $batch['next_offset']
+						)
+					);
+					return;
+				}
+
 				if ( 'ignore' === $settings['missing_action'] ) {
 					$this->complete_run( $token, __( 'Sync completed successfully.', 'helikon-xml-woo-sync' ) );
 					return;
@@ -285,6 +352,8 @@ class HTX_XML_Woo_Sync_Runner {
 				'started_at'     => '',
 				'feed_path'      => '',
 				'checkpoint'     => 0,
+				'is_test_run'    => false,
+				'max_products'   => 0,
 				'total_products' => 0,
 				'last_status'    => 'warning',
 				'last_message'   => __( 'The sync lock was cleared manually.', 'helikon-xml-woo-sync' ),
@@ -292,6 +361,69 @@ class HTX_XML_Woo_Sync_Runner {
 		);
 
 		$this->state->add_log( __( 'The sync lock was cleared manually by an administrator.', 'helikon-xml-woo-sync' ), 'warning' );
+	}
+
+	/**
+	 * Delete all plugin-managed products, variations, and imported attachments.
+	 *
+	 * @return array|WP_Error
+	 */
+	public function purge_imported_data() {
+		$state = $this->state->get_state();
+		$lock  = $this->state->get_lock();
+
+		if ( ! empty( $state['is_running'] ) && ! $this->state->is_lock_stale( $lock ) ) {
+			return new WP_Error( 'htx_sync_running', __( 'A sync is already running. Wait for it to finish or clear the lock first.', 'helikon-xml-woo-sync' ) );
+		}
+
+		$this->cleanup_feed_file( $state['feed_path'] );
+		$this->clear_scheduled_batch( $state['current_run'] );
+		$this->state->clear_lock();
+
+		$deleted = array(
+			'variations'  => $this->delete_managed_posts( 'product_variation' ),
+			'products'    => $this->delete_managed_posts( 'product' ),
+			'attachments' => $this->delete_managed_attachments(),
+		);
+
+		$this->state->patch_state(
+			array(
+				'last_sync_time' => current_time( 'mysql' ),
+				'last_status'    => 'warning',
+				'last_message'   => sprintf(
+					/* translators: 1: product count, 2: variation count, 3: attachment count */
+					__( 'Imported data removed. Deleted %1$d products, %2$d variations, and %3$d attachments.', 'helikon-xml-woo-sync' ),
+					$deleted['products'],
+					$deleted['variations'],
+					$deleted['attachments']
+				),
+				'last_error'     => '',
+				'summary'        => $this->state->get_empty_summary(),
+				'is_running'     => false,
+				'phase'          => 'idle',
+				'current_run'    => '',
+				'trigger'        => '',
+				'started_at'     => '',
+				'feed_path'      => '',
+				'checkpoint'     => 0,
+				'is_test_run'    => false,
+				'max_products'   => 0,
+				'total_products' => 0,
+			)
+		);
+
+		$this->state->add_log(
+			sprintf(
+				/* translators: 1: product count, 2: variation count, 3: attachment count */
+				__( 'Imported data purge completed. Deleted %1$d products, %2$d variations, and %3$d attachments.', 'helikon-xml-woo-sync' ),
+				$deleted['products'],
+				$deleted['variations'],
+				$deleted['attachments']
+			),
+			'warning'
+		);
+
+		return $deleted;
 	}
 
 	/**
@@ -352,6 +484,8 @@ class HTX_XML_Woo_Sync_Runner {
 				'started_at'     => '',
 				'feed_path'      => '',
 				'checkpoint'     => 0,
+				'is_test_run'    => false,
+				'max_products'   => 0,
 				'total_products' => 0,
 			)
 		);
@@ -385,6 +519,8 @@ class HTX_XML_Woo_Sync_Runner {
 				'started_at'     => '',
 				'feed_path'      => '',
 				'checkpoint'     => 0,
+				'is_test_run'    => false,
+				'max_products'   => 0,
 				'total_products' => 0,
 			)
 		);
@@ -429,5 +565,90 @@ class HTX_XML_Woo_Sync_Runner {
 		if ( '' !== $feed_path && file_exists( $feed_path ) ) {
 			wp_delete_file( $feed_path );
 		}
+	}
+
+	/**
+	 * Delete managed products or variations in small chunks.
+	 *
+	 * @param string $post_type Product post type.
+	 * @return int
+	 */
+	private function delete_managed_posts( $post_type ) {
+		$deleted = 0;
+
+		do {
+			$post_ids = get_posts(
+				array(
+					'post_type'      => $post_type,
+					'post_status'    => array( 'publish', 'private', 'draft', 'pending', 'future', 'trash' ),
+					'posts_per_page' => 50,
+					'fields'         => 'ids',
+					'meta_key'       => HTX_XML_Woo_Sync_Plugin::META_IS_MANAGED,
+					'meta_value'     => 'yes',
+					'orderby'        => 'ID',
+					'order'          => 'ASC',
+				)
+			);
+
+			foreach ( $post_ids as $post_id ) {
+				if ( wp_delete_post( $post_id, true ) ) {
+					++$deleted;
+				}
+			}
+		} while ( ! empty( $post_ids ) );
+
+		return $deleted;
+	}
+
+	/**
+	 * Delete imported attachments created by this plugin.
+	 *
+	 * @return int
+	 */
+	private function delete_managed_attachments() {
+		$deleted = 0;
+
+		do {
+			$attachment_ids = get_posts(
+				array(
+					'post_type'      => 'attachment',
+					'post_status'    => 'inherit',
+					'posts_per_page' => 50,
+					'fields'         => 'ids',
+					'meta_query'     => array(
+						array(
+							'key'     => HTX_XML_Woo_Sync_Plugin::META_IMAGE_SOURCE,
+							'compare' => 'EXISTS',
+						),
+					),
+					'orderby'        => 'ID',
+					'order'          => 'ASC',
+				)
+			);
+
+			foreach ( $attachment_ids as $attachment_id ) {
+				if ( wp_delete_attachment( $attachment_id, true ) ) {
+					++$deleted;
+				}
+			}
+		} while ( ! empty( $attachment_ids ) );
+
+		return $deleted;
+	}
+
+	/**
+	 * Get the effective total rows for the current run.
+	 *
+	 * @param array $state              Current runtime state.
+	 * @param int   $validated_products Total rows discovered in the feed.
+	 * @return int
+	 */
+	private function get_run_total_products( $state, $validated_products ) {
+		$validated_products = max( 0, absint( $validated_products ) );
+		if ( empty( $state['is_test_run'] ) || empty( $state['max_products'] ) ) {
+			return $validated_products;
+		}
+
+		return min( $validated_products, absint( $state['max_products'] ) );
 	}
 }
