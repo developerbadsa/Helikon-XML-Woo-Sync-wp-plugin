@@ -139,6 +139,9 @@ class HTX_XML_Woo_Sync_Admin {
 		$schedule_label   = $this->format_schedule_label( $settings['schedule'] );
 		$recent_logs      = $this->get_recent_log_entries( (array) $state['log'], 8 );
 		$raw_log_output   = implode( "\n", array_reverse( (array) $state['log'] ) );
+		$parent_total     = (int) $summary['parents_created'] + (int) $summary['parents_updated'];
+		$variation_total  = (int) $summary['variations_created'] + (int) $summary['variations_updated'];
+		$imported_total   = (int) $summary['created'] + (int) $summary['updated'];
 		$lock_text        = __( 'No active lock', 'helikon-xml-woo-sync' );
 
 		if ( ! empty( $lock['expires_at'] ) ) {
@@ -164,15 +167,21 @@ class HTX_XML_Woo_Sync_Admin {
 				</div>
 
 				<div class="htx-sync-report-card is-neutral">
-					<span class="htx-sync-report-card__label"><?php esc_html_e( 'Imported', 'helikon-xml-woo-sync' ); ?></span>
-					<strong class="htx-sync-report-card__value"><?php echo esc_html( number_format_i18n( (int) $summary['created'] + (int) $summary['updated'] ) ); ?></strong>
-					<p class="htx-sync-report-card__meta"><?php echo esc_html( sprintf( __( '%1$d created, %2$d updated', 'helikon-xml-woo-sync' ), (int) $summary['created'], (int) $summary['updated'] ) ); ?></p>
+					<span class="htx-sync-report-card__label"><?php esc_html_e( 'Parent Products', 'helikon-xml-woo-sync' ); ?></span>
+					<strong class="htx-sync-report-card__value"><?php echo esc_html( number_format_i18n( $parent_total ) ); ?></strong>
+					<p class="htx-sync-report-card__meta"><?php esc_html_e( 'Top-level WooCommerce products shown on All Products.', 'helikon-xml-woo-sync' ); ?></p>
 				</div>
 
 				<div class="htx-sync-report-card is-neutral">
-					<span class="htx-sync-report-card__label"><?php esc_html_e( 'Variants and Parents', 'helikon-xml-woo-sync' ); ?></span>
-					<strong class="htx-sync-report-card__value"><?php echo esc_html( number_format_i18n( (int) $summary['parents_created'] + (int) $summary['parents_updated'] + (int) $summary['variations_created'] + (int) $summary['variations_updated'] ) ); ?></strong>
-					<p class="htx-sync-report-card__meta"><?php echo esc_html( sprintf( __( 'Parents %1$d, variations %2$d', 'helikon-xml-woo-sync' ), (int) $summary['parents_created'] + (int) $summary['parents_updated'], (int) $summary['variations_created'] + (int) $summary['variations_updated'] ) ); ?></p>
+					<span class="htx-sync-report-card__label"><?php esc_html_e( 'Variations', 'helikon-xml-woo-sync' ); ?></span>
+					<strong class="htx-sync-report-card__value"><?php echo esc_html( number_format_i18n( $variation_total ) ); ?></strong>
+					<p class="htx-sync-report-card__meta"><?php esc_html_e( 'Child SKUs linked under the parent products.', 'helikon-xml-woo-sync' ); ?></p>
+				</div>
+
+				<div class="htx-sync-report-card is-neutral">
+					<span class="htx-sync-report-card__label"><?php esc_html_e( 'Imported Entries', 'helikon-xml-woo-sync' ); ?></span>
+					<strong class="htx-sync-report-card__value"><?php echo esc_html( number_format_i18n( $imported_total ) ); ?></strong>
+					<p class="htx-sync-report-card__meta"><?php echo esc_html( sprintf( __( '%1$d created, %2$d updated across parents and variations', 'helikon-xml-woo-sync' ), (int) $summary['created'], (int) $summary['updated'] ) ); ?></p>
 				</div>
 
 				<div class="htx-sync-report-card <?php echo esc_attr( ( (int) $summary['failed'] > 0 || (int) $summary['skipped'] > 0 ) ? 'is-warning' : 'is-neutral' ); ?>">
@@ -221,6 +230,8 @@ class HTX_XML_Woo_Sync_Admin {
 					<div class="htx-sync-monitor__progress-bar" style="width: <?php echo esc_attr( $progress_percent ); ?>%;"></div>
 				</div>
 
+				<p class="description"><?php esc_html_e( 'Processed Rows counts feed rows. WooCommerce All Products usually shows only the parent products, while child variations stay inside each parent.', 'helikon-xml-woo-sync' ); ?></p>
+
 				<div class="htx-sync-monitor__panels">
 					<div class="htx-sync-monitor__panel">
 						<span><?php esc_html_e( 'Checkpoint', 'helikon-xml-woo-sync' ); ?></span>
@@ -253,7 +264,9 @@ class HTX_XML_Woo_Sync_Admin {
 				<p><strong><?php esc_html_e( 'Current phase:', 'helikon-xml-woo-sync' ); ?></strong> <?php echo esc_html( ucfirst( (string) $state['phase'] ) ); ?></p>
 				<p><strong><?php esc_html_e( 'Current checkpoint:', 'helikon-xml-woo-sync' ); ?></strong> <?php echo esc_html( sprintf( '%d / %d', (int) $state['checkpoint'], (int) $state['total_products'] ) ); ?></p>
 				<p><strong><?php esc_html_e( 'Lock expires:', 'helikon-xml-woo-sync' ); ?></strong> <?php echo esc_html( ! empty( $lock['expires_at'] ) ? gmdate( 'Y-m-d H:i:s', (int) $lock['expires_at'] ) . ' UTC' : __( 'No active lock', 'helikon-xml-woo-sync' ) ); ?></p>
-				<p><strong><?php esc_html_e( 'Processed:', 'helikon-xml-woo-sync' ); ?></strong> <?php echo esc_html( (int) $summary['processed'] ); ?></p>
+				<p><strong><?php esc_html_e( 'Processed rows:', 'helikon-xml-woo-sync' ); ?></strong> <?php echo esc_html( (int) $summary['processed'] ); ?></p>
+				<p><strong><?php esc_html_e( 'Parent products:', 'helikon-xml-woo-sync' ); ?></strong> <?php echo esc_html( $parent_total ); ?></p>
+				<p><strong><?php esc_html_e( 'Variations:', 'helikon-xml-woo-sync' ); ?></strong> <?php echo esc_html( $variation_total ); ?></p>
 				<p><strong><?php esc_html_e( 'Created:', 'helikon-xml-woo-sync' ); ?></strong> <?php echo esc_html( (int) $summary['created'] ); ?></p>
 				<p><strong><?php esc_html_e( 'Updated:', 'helikon-xml-woo-sync' ); ?></strong> <?php echo esc_html( (int) $summary['updated'] ); ?></p>
 				<p><strong><?php esc_html_e( 'Skipped:', 'helikon-xml-woo-sync' ); ?></strong> <?php echo esc_html( (int) $summary['skipped'] ); ?></p>
@@ -431,7 +444,7 @@ class HTX_XML_Woo_Sync_Admin {
 						<th scope="row"><label for="htx_grouping_path"><?php esc_html_e( 'Grouping Field Path', 'helikon-xml-woo-sync' ); ?></label></th>
 						<td>
 							<input name="<?php echo esc_attr( HTX_XML_Woo_Sync_Plugin::OPTION_KEY ); ?>[grouping_path]" id="htx_grouping_path" type="text" class="regular-text code" value="<?php echo esc_attr( $settings['grouping_path'] ); ?>">
-							<p class="description"><?php esc_html_e( 'Optional dot path for an explicit parent/group identifier in the XML.', 'helikon-xml-woo-sync' ); ?></p>
+							<p class="description"><?php esc_html_e( 'Optional dot path for an explicit parent/group identifier in the XML. Leave blank to auto-detect common keys like groupId.', 'helikon-xml-woo-sync' ); ?></p>
 						</td>
 					</tr>
 					<tr>

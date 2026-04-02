@@ -395,14 +395,10 @@ class HTX_XML_Woo_Sync_Feed {
 		$brand        = $this->get_mapped_scalar( $data, $settings, 'brand_path', 'Brand' );
 		$manufacturer = $this->get_mapped_scalar( $data, $settings, 'manufacturer_path', 'Manufacturer' );
 		$description  = $this->normalize_description( $this->get_mapped_scalar( $data, $settings, 'description_path', 'catalogDescription' ) );
-		$main_photo   = $this->get_mapped_scalar( $data, $settings, 'main_photo_path', 'Multimedia.mainPhoto' );
-		$additional   = $this->get_mapped_array( $data, $settings, 'gallery_photo_path', 'Multimedia.additionalPhotos.photo' );
-		$sku_base     = $this->derive_sku_base( $sku );
-		$field_value  = '';
-
-		if ( ! empty( $settings['grouping_path'] ) ) {
-			$field_value = $this->normalize_scalar( $this->array_get( $data, $settings['grouping_path'] ) );
-		}
+		$main_photo  = $this->get_mapped_scalar( $data, $settings, 'main_photo_path', 'Multimedia.mainPhoto' );
+		$additional  = $this->get_mapped_array( $data, $settings, 'gallery_photo_path', 'Multimedia.additionalPhotos.photo' );
+		$sku_base    = $this->derive_sku_base( $sku );
+		$field_value = $this->resolve_group_field_value( $data, $settings );
 
 		switch ( $settings['grouping_mode'] ) {
 			case 'field_only':
@@ -479,6 +475,39 @@ class HTX_XML_Woo_Sync_Feed {
 		}
 
 		return (string) $fallback_path;
+	}
+
+	/**
+	 * Resolve the grouping field value for a feed row.
+	 *
+	 * When no explicit grouping path is configured, try common group ID keys so
+	 * existing installs can still link variants under the same parent.
+	 *
+	 * @param array $data     Row data.
+	 * @param array $settings Plugin settings.
+	 * @return string
+	 */
+	private function resolve_group_field_value( $data, $settings ) {
+		$paths = array();
+
+		if ( ! empty( $settings['grouping_path'] ) ) {
+			$paths[] = (string) $settings['grouping_path'];
+		}
+
+		foreach ( array( 'groupId', 'groupID', 'GroupId', 'GroupID' ) as $fallback_path ) {
+			if ( ! in_array( $fallback_path, $paths, true ) ) {
+				$paths[] = $fallback_path;
+			}
+		}
+
+		foreach ( $paths as $path ) {
+			$value = $this->normalize_scalar( $this->array_get( $data, $path ) );
+			if ( '' !== $value ) {
+				return $value;
+			}
+		}
+
+		return '';
 	}
 
 	/**
