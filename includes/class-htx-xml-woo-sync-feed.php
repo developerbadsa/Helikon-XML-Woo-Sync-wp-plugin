@@ -310,11 +310,16 @@ class HTX_XML_Woo_Sync_Feed {
 			'description'       => $group['description'],
 			'brand'             => $group['brand'],
 			'manufacturer'      => $group['manufacturer'],
+			'product_line'      => $group['product_line'],
+			'fabric_name'       => $group['fabric_name'],
+			'fabric_composition'=> $group['fabric_composition'],
 			'main_photo'        => $group['main_photo'],
 			'additional_photos' => $group['additional_photos'],
 			'item'              => array(
 				'sku'           => $sku,
 				'erp_id'        => $this->get_mapped_scalar( $data, $settings, 'erp_id_path', 'erpID' ),
+				'ean'           => $this->normalize_scalar( $this->array_get( $data, 'aEAN' ) ),
+				'hs_code'       => $this->normalize_scalar( $this->array_get( $data, 'KodPCN' ) ),
 				'attributes'    => $this->extract_variant_attributes( $data, $settings ),
 				'regular_price' => $this->extract_price( $data, $settings['price_path'], array( 'price', 'Price', 'grossPrice', 'GrossPrice', 'retailPrice', 'RetailPrice' ) ),
 				'sale_price'    => $this->extract_price( $data, $settings['sale_price_path'], array( 'salePrice', 'SalePrice', 'promoPrice', 'PromoPrice' ) ),
@@ -348,6 +353,9 @@ class HTX_XML_Woo_Sync_Feed {
 					'description'       => $record['description'],
 					'brand'             => $record['brand'],
 					'manufacturer'      => $record['manufacturer'],
+					'product_line'      => $record['product_line'],
+					'fabric_name'       => $record['fabric_name'],
+					'fabric_composition'=> $record['fabric_composition'],
 					'main_photo'        => $record['main_photo'],
 					'additional_photos' => $record['additional_photos'],
 					'items'             => array(),
@@ -391,14 +399,17 @@ class HTX_XML_Woo_Sync_Feed {
 	 * @return array
 	 */
 	private function build_group_context( $data, $settings, $sku ) {
-		$title        = $this->get_mapped_scalar( $data, $settings, 'title_path', 'productName' );
-		$brand        = $this->get_mapped_scalar( $data, $settings, 'brand_path', 'Brand' );
-		$manufacturer = $this->get_mapped_scalar( $data, $settings, 'manufacturer_path', 'Manufacturer' );
-		$description  = $this->normalize_description( $this->get_mapped_scalar( $data, $settings, 'description_path', 'catalogDescription' ) );
-		$main_photo  = $this->get_mapped_scalar( $data, $settings, 'main_photo_path', 'Multimedia.mainPhoto' );
-		$additional  = $this->get_mapped_array( $data, $settings, 'gallery_photo_path', 'Multimedia.additionalPhotos.photo' );
-		$sku_base    = $this->derive_sku_base( $sku );
-		$field_value = $this->resolve_group_field_value( $data, $settings );
+		$title              = $this->get_mapped_scalar( $data, $settings, 'title_path', 'productName' );
+		$brand              = $this->get_mapped_scalar( $data, $settings, 'brand_path', 'Brand' );
+		$manufacturer       = $this->get_mapped_scalar( $data, $settings, 'manufacturer_path', 'Manufacturer' );
+		$description        = $this->normalize_description( $this->get_mapped_scalar( $data, $settings, 'description_path', 'catalogDescription' ) );
+		$product_line       = $this->normalize_scalar( $this->array_get( $data, 'productLine' ) );
+		$fabric_name        = $this->normalize_scalar( $this->array_get( $data, 'Fabric.Name' ) );
+		$fabric_composition = $this->normalize_scalar( $this->array_get( $data, 'Fabric.Composition' ) );
+		$main_photo         = $this->get_mapped_scalar( $data, $settings, 'main_photo_path', 'Multimedia.mainPhoto' );
+		$additional         = $this->get_mapped_array( $data, $settings, 'gallery_photo_path', 'Multimedia.additionalPhotos.photo' );
+		$sku_base           = $this->derive_sku_base( $sku );
+		$field_value        = $this->resolve_group_field_value( $data, $settings );
 
 		switch ( $settings['grouping_mode'] ) {
 			case 'field_only':
@@ -428,6 +439,9 @@ class HTX_XML_Woo_Sync_Feed {
 			'description'       => $description,
 			'brand'             => $brand,
 			'manufacturer'      => $manufacturer,
+			'product_line'      => $product_line,
+			'fabric_name'       => $fabric_name,
+			'fabric_composition'=> $fabric_composition,
 			'main_photo'        => $main_photo,
 			'additional_photos' => $additional,
 		);
@@ -753,13 +767,13 @@ class HTX_XML_Woo_Sync_Feed {
 		if ( is_array( $value ) ) {
 			if ( array_key_exists( 0, $value ) ) {
 				$first = reset( $value );
-				return is_scalar( $first ) ? trim( (string) $first ) : '';
+				return is_scalar( $first ) ? $this->repair_text( trim( (string) $first ) ) : '';
 			}
 
 			return '';
 		}
 
-		return is_scalar( $value ) ? trim( (string) $value ) : '';
+		return is_scalar( $value ) ? $this->repair_text( trim( (string) $value ) ) : '';
 	}
 
 	/**
@@ -780,7 +794,7 @@ class HTX_XML_Woo_Sync_Feed {
 					continue;
 				}
 
-				$item = trim( (string) $item );
+				$item = $this->repair_text( trim( (string) $item ) );
 				if ( '' !== $item ) {
 					$items[] = $item;
 				}
@@ -789,7 +803,7 @@ class HTX_XML_Woo_Sync_Feed {
 			return array_values( array_unique( $items ) );
 		}
 
-		$value = trim( (string) $value );
+		$value = $this->repair_text( trim( (string) $value ) );
 		return '' === $value ? array() : array( $value );
 	}
 
@@ -801,7 +815,26 @@ class HTX_XML_Woo_Sync_Feed {
 	 */
 	private function normalize_description( $value ) {
 		$value = str_replace( '[more]', '', (string) $value );
-		return trim( $value );
+		return $this->repair_text( trim( $value ) );
+	}
+
+	/**
+	 * Repair common mojibake sequences returned by the supplier feed.
+	 *
+	 * @param string $value Raw text.
+	 * @return string
+	 */
+	private function repair_text( $value ) {
+		$value = (string) $value;
+		if ( '' === $value ) {
+			return '';
+		}
+
+		return str_replace(
+			array( 'Â®', 'Â©', 'Â°', 'Â·', 'â„¢', 'â€™', 'â€˜', 'â€œ', 'â€', 'â€“', 'â€”', 'â€¢' ),
+			array( '®', '©', '°', '·', '™', "'", "'", '"', '"', '-', '-', '•' ),
+			$value
+		);
 	}
 
 	/**

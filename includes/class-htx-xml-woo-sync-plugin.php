@@ -21,6 +21,7 @@ class HTX_XML_Woo_Sync_Plugin {
 	const NONCE_ACTION_CLEAR_LOCK = 'htx_xml_woo_sync_clear_lock';
 	const NONCE_ACTION_CLEAR_LOGS = 'htx_xml_woo_sync_clear_logs';
 	const NONCE_ACTION_PURGE_DATA = 'htx_xml_woo_sync_purge_data';
+	const NONCE_ACTION_PRICE_LIST = 'htx_xml_woo_sync_price_list';
 
 	const META_GROUP_KEY          = '_htx_group_key';
 	const META_GROUP_EXTERNAL     = '_htx_group_external_key';
@@ -30,6 +31,10 @@ class HTX_XML_Woo_Sync_Plugin {
 	const META_LAST_SYNC_TOKEN    = '_htx_last_sync_token';
 	const META_MISSING_MARK_TOKEN = '_htx_missing_mark_token';
 	const META_SOURCE_SKU         = '_htx_source_sku';
+	const META_PRICE_CURRENCY     = '_htx_price_currency';
+	const META_SALE_CURRENCY      = '_htx_sale_currency';
+	const META_MSRP_PRICE         = '_htx_msrp_price';
+	const META_MSRP_CURRENCY      = '_htx_msrp_currency';
 
 	/**
 	 * Singleton instance.
@@ -91,8 +96,9 @@ class HTX_XML_Woo_Sync_Plugin {
 		$images       = new HTX_XML_Woo_Sync_Images( $this->state );
 		$feed         = new HTX_XML_Woo_Sync_Feed( $this->state );
 		$products     = new HTX_XML_Woo_Sync_Products( $this->state, $images );
+		$price_import = new HTX_XML_Woo_Sync_Price_Importer( $this->state );
 		$this->runner = new HTX_XML_Woo_Sync_Runner( $this->state, $feed, $products );
-		$this->admin  = new HTX_XML_Woo_Sync_Admin( $this->state, $feed, $this->runner );
+		$this->admin  = new HTX_XML_Woo_Sync_Admin( $this->state, $feed, $this->runner, $price_import );
 
 		$this->admin->register_hooks();
 

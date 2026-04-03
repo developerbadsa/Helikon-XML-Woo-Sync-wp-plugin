@@ -32,16 +32,25 @@ class HTX_XML_Woo_Sync_Admin {
 	private $runner;
 
 	/**
+	 * Supplemental price importer.
+	 *
+	 * @var HTX_XML_Woo_Sync_Price_Importer
+	 */
+	private $price_importer;
+
+	/**
 	 * Constructor.
 	 *
 	 * @param HTX_XML_Woo_Sync_State  $state  State service.
 	 * @param HTX_XML_Woo_Sync_Feed   $feed   Feed service.
-	 * @param HTX_XML_Woo_Sync_Runner $runner Sync runner.
+	 * @param HTX_XML_Woo_Sync_Runner         $runner         Sync runner.
+	 * @param HTX_XML_Woo_Sync_Price_Importer $price_importer Supplemental importer.
 	 */
-	public function __construct( $state, $feed, $runner ) {
-		$this->state  = $state;
-		$this->feed   = $feed;
-		$this->runner = $runner;
+	public function __construct( $state, $feed, $runner, $price_importer ) {
+		$this->state          = $state;
+		$this->feed           = $feed;
+		$this->runner         = $runner;
+		$this->price_importer = $price_importer;
 	}
 
 	/**
@@ -58,6 +67,7 @@ class HTX_XML_Woo_Sync_Admin {
 		add_action( 'admin_post_htx_xml_clear_lock', array( $this, 'handle_clear_lock' ) );
 		add_action( 'admin_post_htx_xml_clear_logs', array( $this, 'handle_clear_logs' ) );
 		add_action( 'admin_post_htx_xml_purge_data', array( $this, 'handle_purge_data' ) );
+		add_action( 'admin_post_htx_xml_import_price_list', array( $this, 'handle_price_list_import' ) );
 	}
 
 	/**
@@ -345,6 +355,44 @@ class HTX_XML_Woo_Sync_Admin {
 				<?php endif; ?>
 			</div>
 
+			<div class="htx-sync-card htx-sync-card--supplemental">
+				<div class="htx-sync-section-head">
+					<div>
+						<h2><?php esc_html_e( 'Supplemental Price List', 'helikon-xml-woo-sync' ); ?></h2>
+						<p><?php esc_html_e( 'Use a supplier CSV or XLSX file to match existing WooCommerce SKUs and fill in missing price-related data that is not present in the XML feed.', 'helikon-xml-woo-sync' ); ?></p>
+					</div>
+				</div>
+
+				<form class="htx-sync-import-form" method="post" action="<?php echo esc_url( admin_url( 'admin-post.php' ) ); ?>" enctype="multipart/form-data">
+					<?php wp_nonce_field( HTX_XML_Woo_Sync_Plugin::NONCE_ACTION_PRICE_LIST ); ?>
+					<input type="hidden" name="action" value="htx_xml_import_price_list">
+
+					<div class="htx-sync-import-grid">
+						<p class="htx-sync-import-field">
+							<label for="htx_price_list_file"><?php esc_html_e( 'Price List File', 'helikon-xml-woo-sync' ); ?></label>
+							<input type="file" name="price_list_file" id="htx_price_list_file" accept=".csv,.xlsx" required>
+							<span class="description"><?php esc_html_e( 'Accepted formats: CSV and XLSX. The file should include at least a SKU column. Common columns like ProductRegularPrice, DiscountPrice, ProductMSRPPrice, EAN13, CN, ProductWeight, and ProductWeightUnit are supported automatically.', 'helikon-xml-woo-sync' ); ?></span>
+						</p>
+
+						<p class="htx-sync-import-field">
+							<label for="htx_price_import_mode"><?php esc_html_e( 'Update Strategy', 'helikon-xml-woo-sync' ); ?></label>
+							<select name="price_import_mode" id="htx_price_import_mode">
+								<option value="sync_prices"><?php esc_html_e( 'Update matched prices, fill other empty fields', 'helikon-xml-woo-sync' ); ?></option>
+								<option value="fill_missing"><?php esc_html_e( 'Only fill empty WooCommerce fields', 'helikon-xml-woo-sync' ); ?></option>
+								<option value="overwrite_all"><?php esc_html_e( 'Overwrite all mapped fields for matched SKUs', 'helikon-xml-woo-sync' ); ?></option>
+							</select>
+							<span class="description"><?php esc_html_e( 'Recommended: overwrite regular and sale prices from the file, while only filling empty EAN, HS code, and weight-related fields.', 'helikon-xml-woo-sync' ); ?></span>
+						</p>
+					</div>
+
+					<div class="htx-sync-import-actions">
+						<?php submit_button( __( 'Import Price List', 'helikon-xml-woo-sync' ), 'primary', 'submit', false ); ?>
+					</div>
+				</form>
+
+				<p class="description"><?php esc_html_e( 'This importer does not create products or delete anything. It only updates existing WooCommerce products or variations whose SKU already exists on the site, and blank columns in the file do not erase old values.', 'helikon-xml-woo-sync' ); ?></p>
+			</div>
+
 			<form class="htx-sync-card htx-sync-card--settings htx-sync-settings" method="post" action="options.php" style="max-width:1100px;">
 				<?php settings_fields( 'htx_xml_woo_sync_group' ); ?>
 				<div class="htx-sync-settings__header">
@@ -456,11 +504,17 @@ class HTX_XML_Woo_Sync_Admin {
 					</tr>
 					<tr>
 						<th scope="row"><label for="htx_price_path"><?php esc_html_e( 'Price Path', 'helikon-xml-woo-sync' ); ?></label></th>
-						<td><input name="<?php echo esc_attr( HTX_XML_Woo_Sync_Plugin::OPTION_KEY ); ?>[price_path]" id="htx_price_path" type="text" class="regular-text code" value="<?php echo esc_attr( $settings['price_path'] ); ?>"></td>
+						<td>
+							<input name="<?php echo esc_attr( HTX_XML_Woo_Sync_Plugin::OPTION_KEY ); ?>[price_path]" id="htx_price_path" type="text" class="regular-text code" value="<?php echo esc_attr( $settings['price_path'] ); ?>">
+							<p class="description"><?php esc_html_e( 'If the XML does not contain any price nodes, WooCommerce prices will stay empty or keep their previous value.', 'helikon-xml-woo-sync' ); ?></p>
+						</td>
 					</tr>
 					<tr>
 						<th scope="row"><label for="htx_sale_price_path"><?php esc_html_e( 'Sale Price Path', 'helikon-xml-woo-sync' ); ?></label></th>
-						<td><input name="<?php echo esc_attr( HTX_XML_Woo_Sync_Plugin::OPTION_KEY ); ?>[sale_price_path]" id="htx_sale_price_path" type="text" class="regular-text code" value="<?php echo esc_attr( $settings['sale_price_path'] ); ?>"></td>
+						<td>
+							<input name="<?php echo esc_attr( HTX_XML_Woo_Sync_Plugin::OPTION_KEY ); ?>[sale_price_path]" id="htx_sale_price_path" type="text" class="regular-text code" value="<?php echo esc_attr( $settings['sale_price_path'] ); ?>">
+							<p class="description"><?php esc_html_e( 'Use this only if the supplier feed includes a second promotional price field.', 'helikon-xml-woo-sync' ); ?></p>
+						</td>
 					</tr>
 					<tr>
 						<th scope="row"><label for="htx_stock_qty_path"><?php esc_html_e( 'Stock Quantity Path', 'helikon-xml-woo-sync' ); ?></label></th>
@@ -629,6 +683,34 @@ class HTX_XML_Woo_Sync_Admin {
 	}
 
 	/**
+	 * Import a supplemental CSV/XLSX price list.
+	 *
+	 * @return void
+	 */
+	public function handle_price_list_import() {
+		$this->assert_admin_access( HTX_XML_Woo_Sync_Plugin::NONCE_ACTION_PRICE_LIST );
+
+		$mode   = isset( $_POST['price_import_mode'] ) ? $this->price_importer->sanitize_import_mode( wp_unslash( $_POST['price_import_mode'] ) ) : 'sync_prices';
+		$result = $this->price_importer->import_file( isset( $_FILES['price_list_file'] ) ? $_FILES['price_list_file'] : array(), $mode );
+
+		if ( is_wp_error( $result ) ) {
+			$this->state->add_log( $result->get_error_message(), 'warning' );
+			$this->redirect_with_notice( 'htx_price_sync_running' === $result->get_error_code() ? 'price_import_busy' : 'price_import_failed' );
+			return;
+		}
+
+		$this->redirect_with_notice(
+			'price_import_done',
+			array(
+				'htx_import_updated'   => (int) $result['updated'],
+				'htx_import_matched'   => (int) $result['matched'],
+				'htx_import_unmatched' => (int) $result['unmatched'],
+				'htx_import_failed'    => (int) $result['failed'],
+			)
+		);
+	}
+
+	/**
 	 * Convert a stored machine label to a human-readable label.
 	 *
 	 * @param string $value Raw label.
@@ -715,15 +797,18 @@ class HTX_XML_Woo_Sync_Admin {
 	 */
 	private function render_notice( $notice ) {
 		$messages = array(
-			'sync_queued'      => array( 'success', __( 'Sync queued. It will continue in small batches.', 'helikon-xml-woo-sync' ) ),
-			'test_sync_queued' => array( 'success', __( 'Test sync queued. It will process only the configured number of rows.', 'helikon-xml-woo-sync' ) ),
-			'sync_busy'        => array( 'warning', __( 'A sync is already running. Check the status box or clear the lock if it is stuck.', 'helikon-xml-woo-sync' ) ),
-			'test_ok'          => array( 'success', __( 'Connection test succeeded.', 'helikon-xml-woo-sync' ) ),
-			'test_failed'      => array( 'error', __( 'Connection test failed. Check the log for details.', 'helikon-xml-woo-sync' ) ),
-			'lock_cleared'     => array( 'warning', __( 'The sync lock was cleared manually.', 'helikon-xml-woo-sync' ) ),
-			'logs_cleared'     => array( 'success', __( 'Recent logs were cleared.', 'helikon-xml-woo-sync' ) ),
-			'purge_done'       => array( 'warning', __( 'Imported data was deleted.', 'helikon-xml-woo-sync' ) ),
-			'purge_failed'     => array( 'error', __( 'Imported data could not be deleted. Check the log for details.', 'helikon-xml-woo-sync' ) ),
+			'sync_queued'        => array( 'success', __( 'Sync queued. It will continue in small batches.', 'helikon-xml-woo-sync' ) ),
+			'test_sync_queued'   => array( 'success', __( 'Test sync queued. It will process only the configured number of rows.', 'helikon-xml-woo-sync' ) ),
+			'sync_busy'          => array( 'warning', __( 'A sync is already running. Check the status box or clear the lock if it is stuck.', 'helikon-xml-woo-sync' ) ),
+			'test_ok'            => array( 'success', __( 'Connection test succeeded.', 'helikon-xml-woo-sync' ) ),
+			'test_failed'        => array( 'error', __( 'Connection test failed. Check the log for details.', 'helikon-xml-woo-sync' ) ),
+			'lock_cleared'       => array( 'warning', __( 'The sync lock was cleared manually.', 'helikon-xml-woo-sync' ) ),
+			'logs_cleared'       => array( 'success', __( 'Recent logs were cleared.', 'helikon-xml-woo-sync' ) ),
+			'purge_done'         => array( 'warning', __( 'Imported data was deleted.', 'helikon-xml-woo-sync' ) ),
+			'purge_failed'       => array( 'error', __( 'Imported data could not be deleted. Check the log for details.', 'helikon-xml-woo-sync' ) ),
+			'price_import_busy'  => array( 'warning', __( 'A sync is currently running. Wait for it to finish before importing a supplemental price list.', 'helikon-xml-woo-sync' ) ),
+			'price_import_done'  => array( 'success', '' ),
+			'price_import_failed'=> array( 'error', __( 'The supplemental price list could not be imported. Check the log for details.', 'helikon-xml-woo-sync' ) ),
 		);
 
 		if ( empty( $messages[ $notice ] ) ) {
@@ -731,6 +816,17 @@ class HTX_XML_Woo_Sync_Admin {
 		}
 
 		list( $class, $message ) = $messages[ $notice ];
+		if ( 'price_import_done' === $notice ) {
+			$message = sprintf(
+				/* translators: 1: updated count, 2: matched count, 3: unmatched count, 4: failed count */
+				__( 'Supplemental price list imported. Updated %1$d matched SKUs, matched %2$d total, left %3$d unmatched, and hit %4$d failures.', 'helikon-xml-woo-sync' ),
+				absint( isset( $_GET['htx_import_updated'] ) ? wp_unslash( $_GET['htx_import_updated'] ) : 0 ),
+				absint( isset( $_GET['htx_import_matched'] ) ? wp_unslash( $_GET['htx_import_matched'] ) : 0 ),
+				absint( isset( $_GET['htx_import_unmatched'] ) ? wp_unslash( $_GET['htx_import_unmatched'] ) : 0 ),
+				absint( isset( $_GET['htx_import_failed'] ) ? wp_unslash( $_GET['htx_import_failed'] ) : 0 )
+			);
+		}
+
 		printf(
 			'<div class="notice notice-%1$s"><p>%2$s</p></div>',
 			esc_attr( $class ),
@@ -758,12 +854,15 @@ class HTX_XML_Woo_Sync_Admin {
 	 * @param string $notice Notice code.
 	 * @return void
 	 */
-	private function redirect_with_notice( $notice ) {
+	private function redirect_with_notice( $notice, $args = array() ) {
 		wp_safe_redirect(
 			add_query_arg(
-				array(
-					'page'       => 'htx-xml-woo-sync',
-					'htx_notice' => $notice,
+				array_merge(
+					array(
+						'page'       => 'htx-xml-woo-sync',
+						'htx_notice' => $notice,
+					),
+					(array) $args
 				),
 				admin_url( 'admin.php' )
 			)

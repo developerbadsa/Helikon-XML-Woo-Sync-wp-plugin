@@ -24,6 +24,7 @@ require_once HTX_XML_WOO_SYNC_PATH . 'includes/class-htx-xml-woo-sync-images.php
 require_once HTX_XML_WOO_SYNC_PATH . 'includes/class-htx-xml-woo-sync-feed.php';
 require_once HTX_XML_WOO_SYNC_PATH . 'includes/class-htx-xml-woo-sync-products.php';
 require_once HTX_XML_WOO_SYNC_PATH . 'includes/class-htx-xml-woo-sync-runner.php';
+require_once HTX_XML_WOO_SYNC_PATH . 'includes/class-htx-xml-woo-sync-price-importer.php';
 require_once HTX_XML_WOO_SYNC_PATH . 'includes/class-htx-xml-woo-sync-admin.php';
 require_once HTX_XML_WOO_SYNC_PATH . 'includes/class-htx-xml-woo-sync-plugin.php';
 

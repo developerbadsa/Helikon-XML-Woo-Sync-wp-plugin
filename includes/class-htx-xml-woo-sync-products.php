@@ -246,7 +246,7 @@ class HTX_XML_Woo_Sync_Products {
 
 		$product->set_status( 'publish' );
 		$product->set_catalog_visibility( 'visible' );
-		$product->set_attributes( $this->build_parent_attributes( $product, $group['attribute_union'] ) );
+		$product->set_attributes( $this->build_parent_attributes( $product, $group['attribute_union'], $this->build_static_attribute_map( $group ) ) );
 
 		if ( $group['sku_base'] ) {
 			$this->assign_product_sku( $product, $group['sku_base'], $group['title'] );
@@ -261,13 +261,14 @@ class HTX_XML_Woo_Sync_Products {
 		update_post_meta( $parent_id, HTX_XML_Woo_Sync_Plugin::META_IS_MANAGED, 'yes' );
 		update_post_meta( $parent_id, HTX_XML_Woo_Sync_Plugin::META_LAST_SYNC_TOKEN, $run_token );
 
-		if ( $group['brand'] ) {
-			update_post_meta( $parent_id, '_htx_brand', $group['brand'] );
-		}
-
-		if ( $group['manufacturer'] ) {
-			update_post_meta( $parent_id, '_htx_manufacturer', $group['manufacturer'] );
-		}
+		$this->update_meta_value( $parent_id, '_htx_brand', $group['brand'] );
+		$this->update_meta_value( $parent_id, '_htx_manufacturer', $group['manufacturer'] );
+		$this->update_meta_value( $parent_id, '_htx_product_line', $group['product_line'] );
+		$this->update_meta_value( $parent_id, '_htx_fabric_name', $group['fabric_name'] );
+		$this->update_meta_value( $parent_id, '_htx_fabric_composition', $group['fabric_composition'] );
+		$this->update_meta_value( $parent_id, '_htx_hs_code', $this->get_first_non_empty_item_value( $group['items'], 'hs_code' ) );
+		$this->sync_parent_categories( $parent_id, $group );
+		$this->sync_parent_brand_terms( $parent_id, $group['brand'] );
 
 		$current_image_id = (int) $product->get_image_id();
 
@@ -375,12 +376,26 @@ class HTX_XML_Woo_Sync_Products {
 		update_post_meta( $variation_id, HTX_XML_Woo_Sync_Plugin::META_LAST_SYNC_TOKEN, $run_token );
 		update_post_meta( $variation_id, HTX_XML_Woo_Sync_Plugin::META_SOURCE_SKU, $item['sku'] );
 
-		if ( $item['erp_id'] ) {
-			update_post_meta( $variation_id, '_htx_erp_id', $item['erp_id'] );
-		}
+		$this->update_meta_value( $variation_id, '_htx_erp_id', $item['erp_id'] );
+		$this->update_meta_value( $variation_id, '_htx_weight_unit', $item['weight_unit'] );
+		$this->update_meta_value( $variation_id, '_htx_ean', $item['ean'] );
+		$this->update_meta_value( $variation_id, '_htx_hs_code', $item['hs_code'] );
 
-		if ( $item['weight_unit'] ) {
-			update_post_meta( $variation_id, '_htx_weight_unit', $item['weight_unit'] );
+		if ( method_exists( $variation, 'set_global_unique_id' ) ) {
+			try {
+				$variation->set_global_unique_id( $item['ean'] );
+				$variation->save();
+			} catch ( \Throwable $exception ) {
+				$this->state->add_log(
+					sprintf(
+						/* translators: 1: SKU, 2: message */
+						__( 'Could not set global unique ID for SKU %1$s: %2$s', 'helikon-xml-woo-sync' ),
+						$item['sku'],
+						$exception->getMessage()
+					),
+					'warning'
+				);
+			}
 		}
 
 		$current_image_id = (int) $variation->get_image_id();
@@ -416,11 +431,12 @@ class HTX_XML_Woo_Sync_Products {
 	/**
 	 * Build parent attributes by merging existing local attributes with new values.
 	 *
-	 * @param WC_Product_Variable $product       Product instance.
-	 * @param array               $attribute_map New attribute map.
+	 * @param WC_Product_Variable $product               Product instance.
+	 * @param array               $variation_attribute_map New variation attribute map.
+	 * @param array               $display_attribute_map  New display-only attribute map.
 	 * @return array
 	 */
-	private function build_parent_attributes( $product, $attribute_map ) {
+	private function build_parent_attributes( $product, $variation_attribute_map, $display_attribute_map = array() ) {
 		$final_attributes = array();
 		$local_values     = array();
 		$position         = 0;
@@ -437,39 +453,66 @@ class HTX_XML_Woo_Sync_Products {
 			}
 
 			$name = $attribute->get_name();
-			$local_values[ $name ] = array_values(
-				array_unique(
-					array_filter(
-						array_map( 'strval', $attribute->get_options() )
+			$local_values[ $name ] = array(
+				'values'    => array_values(
+					array_unique(
+						array_filter(
+							array_map( 'strval', $attribute->get_options() )
+						)
 					)
-				)
+				),
+				'visible'   => $attribute->get_visible(),
+				'variation' => $attribute->get_variation(),
 			);
 		}
 
-		foreach ( $attribute_map as $label => $values ) {
+		foreach ( $variation_attribute_map as $label => $values ) {
 			if ( ! isset( $local_values[ $label ] ) ) {
-				$local_values[ $label ] = array();
+				$local_values[ $label ] = array(
+					'values'     => array(),
+					'visible'    => true,
+					'variation'  => true,
+				);
 			}
 
-			$local_values[ $label ] = array_values(
+			$local_values[ $label ]['values'] = array_values(
 				array_unique(
-					array_merge( $local_values[ $label ], array_filter( array_map( 'strval', (array) $values ) ) )
+					array_merge( $local_values[ $label ]['values'], array_filter( array_map( 'strval', (array) $values ) ) )
 				)
 			);
+			$local_values[ $label ]['visible']   = true;
+			$local_values[ $label ]['variation'] = true;
 		}
 
-		foreach ( $local_values as $label => $values ) {
-			if ( empty( $values ) ) {
+		foreach ( $display_attribute_map as $label => $values ) {
+			if ( ! isset( $local_values[ $label ] ) ) {
+				$local_values[ $label ] = array(
+					'values'     => array(),
+					'visible'    => true,
+					'variation'  => false,
+				);
+			}
+
+			$local_values[ $label ]['values'] = array_values(
+				array_unique(
+					array_merge( $local_values[ $label ]['values'], array_filter( array_map( 'strval', (array) $values ) ) )
+				)
+			);
+			$local_values[ $label ]['visible'] = true;
+		}
+
+		foreach ( $local_values as $label => $config ) {
+			if ( empty( $config['values'] ) ) {
 				continue;
 			}
 
 			$attribute = new WC_Product_Attribute();
 			$attribute->set_id( 0 );
 			$attribute->set_name( $label );
-			$attribute->set_options( array_values( $values ) );
+			$attribute->set_options( array_values( $config['values'] ) );
 			$attribute->set_position( $position++ );
-			$attribute->set_visible( true );
-			$attribute->set_variation( true );
+			$attribute->set_visible( ! empty( $config['visible'] ) );
+			$attribute->set_variation( ! empty( $config['variation'] ) );
 			$final_attributes[] = $attribute;
 		}
 
@@ -495,6 +538,188 @@ class HTX_XML_Woo_Sync_Products {
 		}
 
 		return $payload;
+	}
+
+	/**
+	 * Build display-only product attributes from feed metadata.
+	 *
+	 * @param array $group Grouped product data.
+	 * @return array
+	 */
+	private function build_static_attribute_map( $group ) {
+		$attributes = array();
+		$hs_code    = $this->get_first_non_empty_item_value( $group['items'], 'hs_code' );
+
+		foreach (
+			array(
+				'Brand'        => $group['brand'],
+				'Manufacturer' => $group['manufacturer'],
+				'Product Line' => $group['product_line'],
+				'Fabric'       => $group['fabric_name'],
+				'Composition'  => $group['fabric_composition'],
+				'HS Code'      => $hs_code,
+			) as $label => $value
+		) {
+			$value = trim( (string) $value );
+			if ( '' !== $value ) {
+				$attributes[ $label ] = array( $value );
+			}
+		}
+
+		return $attributes;
+	}
+
+	/**
+	 * Assign product categories from product line, with brand as a fallback.
+	 *
+	 * @param int   $parent_id Parent product ID.
+	 * @param array $group     Grouped product data.
+	 * @return void
+	 */
+	private function sync_parent_categories( $parent_id, $group ) {
+		if ( ! taxonomy_exists( 'product_cat' ) ) {
+			return;
+		}
+
+		$categories = array();
+		if ( ! empty( $group['product_line'] ) ) {
+			$categories[] = $group['product_line'];
+		} elseif ( ! empty( $group['brand'] ) ) {
+			$categories[] = $group['brand'];
+		}
+
+		$term_ids = array();
+		foreach ( array_unique( array_filter( array_map( 'strval', $categories ) ) ) as $category_name ) {
+			$term_id = $this->ensure_term( 'product_cat', $category_name );
+			if ( $term_id ) {
+				$term_ids[] = $term_id;
+			}
+		}
+
+		if ( ! empty( $term_ids ) ) {
+			wp_set_object_terms( $parent_id, $term_ids, 'product_cat', false );
+		}
+	}
+
+	/**
+	 * Assign the supplier brand into any supported brand taxonomy.
+	 *
+	 * @param int    $parent_id Parent product ID.
+	 * @param string $brand     Brand label.
+	 * @return void
+	 */
+	private function sync_parent_brand_terms( $parent_id, $brand ) {
+		$brand = trim( (string) $brand );
+
+		foreach ( $this->get_supported_brand_taxonomies() as $taxonomy ) {
+			wp_set_object_terms( $parent_id, '' !== $brand ? array( $brand ) : array(), $taxonomy, false );
+		}
+	}
+
+	/**
+	 * Get supported brand taxonomies registered on the site.
+	 *
+	 * @return array
+	 */
+	private function get_supported_brand_taxonomies() {
+		$taxonomies = array();
+
+		foreach ( array( 'product_brand', 'product_brands', 'pwb-brand', 'yith_product_brand', 'berocket_brand', 'pa_brand', 'pa_brands' ) as $taxonomy ) {
+			if ( taxonomy_exists( $taxonomy ) ) {
+				$taxonomies[] = $taxonomy;
+			}
+		}
+
+		return $taxonomies;
+	}
+
+	/**
+	 * Create or fetch a term in the given taxonomy.
+	 *
+	 * @param string $taxonomy Taxonomy slug.
+	 * @param string $name     Term label.
+	 * @return int
+	 */
+	private function ensure_term( $taxonomy, $name ) {
+		$name = trim( (string) $name );
+		if ( '' === $name ) {
+			return 0;
+		}
+
+		$existing = term_exists( $name, $taxonomy );
+		if ( is_array( $existing ) && ! empty( $existing['term_id'] ) ) {
+			return (int) $existing['term_id'];
+		}
+
+		if ( is_int( $existing ) ) {
+			return (int) $existing;
+		}
+
+		$created = wp_insert_term( $name, $taxonomy );
+		if ( is_wp_error( $created ) ) {
+			if ( 'term_exists' === $created->get_error_code() ) {
+				$term_id = $created->get_error_data();
+				if ( is_array( $term_id ) && ! empty( $term_id['term_id'] ) ) {
+					return (int) $term_id['term_id'];
+				}
+				if ( is_numeric( $term_id ) ) {
+					return (int) $term_id;
+				}
+			}
+
+			$this->state->add_log(
+				sprintf(
+					/* translators: 1: taxonomy slug, 2: term name, 3: error message */
+					__( 'Could not create %1$s term "%2$s": %3$s', 'helikon-xml-woo-sync' ),
+					$taxonomy,
+					$name,
+					$created->get_error_message()
+				),
+				'warning'
+			);
+
+			return 0;
+		}
+
+		return ! empty( $created['term_id'] ) ? (int) $created['term_id'] : 0;
+	}
+
+	/**
+	 * Get the first non-empty value from a grouped item list.
+	 *
+	 * @param array  $items Item rows.
+	 * @param string $key   Item array key.
+	 * @return string
+	 */
+	private function get_first_non_empty_item_value( $items, $key ) {
+		foreach ( (array) $items as $item ) {
+			if ( empty( $item[ $key ] ) ) {
+				continue;
+			}
+
+			return trim( (string) $item[ $key ] );
+		}
+
+		return '';
+	}
+
+	/**
+	 * Update or delete a product meta value.
+	 *
+	 * @param int    $object_id Object ID.
+	 * @param string $meta_key  Meta key.
+	 * @param string $value     Meta value.
+	 * @return void
+	 */
+	private function update_meta_value( $object_id, $meta_key, $value ) {
+		$value = trim( (string) $value );
+
+		if ( '' === $value ) {
+			delete_post_meta( $object_id, $meta_key );
+			return;
+		}
+
+		update_post_meta( $object_id, $meta_key, $value );
 	}
 
 	/**
