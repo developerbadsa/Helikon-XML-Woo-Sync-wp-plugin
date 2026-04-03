@@ -1,10 +1,10 @@
 <?php
 /**
  * Plugin Name: Helikon XML Woo Sync
- * Plugin URI: https://helikon-tex.com/en/
+ * Plugin URI: https:www.rahimbasdsa.me
  * Description: Safely imports a password-protected XML feed into WooCommerce with locked, resumable batch syncs.
- * Version: 1.1.0
- * Author: OpenAI
+ * Version: 1.1.1
+ * Author: Rahim Badsa
  * Requires at least: 6.2
  * Requires PHP: 7.4
  * Text Domain: helikon-xml-woo-sync
